@@ -26,7 +26,7 @@ class Equilibrium_Propegation_Network(nn.Module):
         self.units = [self.input, self.hidden, self.output]
         self.free_units = [self.hidden, self.output]
         
-        self.biases = [torch.zeros(t.size) for t in self.units]
+        self.biases = [torch.zeros(t.shape) for t in self.units]
         self.weights = [nn.init.xavier_uniform_(torch.zeros(t.size)) for pre_t, post_t in zip(self.units[:-1],self.units[1:]) ]
         self.params = [self.biases, self.weights]
 

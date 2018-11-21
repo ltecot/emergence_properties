@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 
-from models.equilibrium_propagation_baseline import Equilibrium_Propegation_Network
+from hebbian_learning.models.equilibrium_propagation_baseline import Equilibrium_Propegation_Network
 
 def train(args, model, train_loader, epoch):
     model.train()
@@ -61,20 +61,19 @@ def main():
 
     torch.manual_seed(args.seed)
 
-    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
     train_loader = torch.utils.data.DataLoader(
         datasets.MNIST('../data', train=True, download=True,
                        transform=transforms.Compose([
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])),
-        batch_size=args.batch_size, shuffle=True, **kwargs)
+        batch_size=args.batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(
         datasets.MNIST('../data', train=False, transform=transforms.Compose([
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])),
-        batch_size=args.test_batch_size, shuffle=True, **kwargs)
+        batch_size=args.test_batch_size, shuffle=True)
 
     model = Equilibrium_Propegation_Network(28*28, 10, args.epsilon, args.alpha)
     for epoch in range(1, args.epochs + 1):
