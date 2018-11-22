@@ -12,12 +12,13 @@ def train(args, model, train_loader, epoch):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         one_hot = torch.zeros((10), dtype=torch.float32)
-        target = one_hot.scatter_(0, target, 1)
-        pred, energy, cost = model.optimize(data, args.n_iterations_pos, args.n_iterations_neg, args.beta, target)
+        onehot_target = one_hot.scatter_(0, target, 1)
+        pred, energy, cost = model.optimize(data, args.n_iterations_pos, args.n_iterations_neg, args.beta, onehot_target)
+        nll_loss = pred[target.item()]
         if batch_idx % args.log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tCost, Energy: {:.6f} | {:.6f}'.format(
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tCost, Energy, nll_loss: {:.6f} | {:.6f} | {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), cost.item(), energy.item()))
+                100. * batch_idx / len(train_loader), cost.item(), energy.item(), nll_loss.item()))
 
 def test(args, model, device, test_loader):
     model.eval()
@@ -39,17 +40,17 @@ def main():
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
     parser.add_argument('--batch-size', type=int, default=1, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+    parser.add_argument('--test-batch-size', type=int, default=1, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+    # parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+    #                     help='learning rate (default: 0.01)')
+    parser.add_argument('--epsilon', type=float, default=0.2, metavar='LR',
                         help='learning rate (default: 0.01)')
-    parser.add_argument('--epsilon', type=float, default=0.5, metavar='LR',
+    parser.add_argument('--alpha', type=float, default=0.02, metavar='LR',
                         help='learning rate (default: 0.01)')
-    parser.add_argument('--alpha', type=float, default=0.1, metavar='LR',
-                        help='learning rate (default: 0.01)')
-    parser.add_argument('--beta', type=float, default=0.5, metavar='LR',
+    parser.add_argument('--beta', type=float, default=0.8, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--n_iterations_pos', type=int, default=20, metavar='LR',
                         help='learning rate (default: 0.01)')

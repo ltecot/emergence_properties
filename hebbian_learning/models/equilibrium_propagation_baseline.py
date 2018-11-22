@@ -53,10 +53,11 @@ class Equilibrium_Propegation_Network(nn.Module):
 
     # MEASURES THE ENERGY, THE COST AND THE MISCLASSIFICATION ERROR FOR THE CURRENT STATE OF THE NETWORK
     def __predict_and_measure(self, ground_truth):
-        E = torch.mean(self.__energy())
-        C = torch.mean(self.__cost(ground_truth))
-        y_softmax = F.log_softmax(self.output, dim=0)
-        return y_softmax, E, C
+        E = self.__energy()
+        C = self.__cost(ground_truth)
+        # y_softmax = F.log_softmax(self.output, dim=0)
+        # return y_softmax, E, C
+        return self.output, E, C
 
     # Coverges network towards fixed point.
     def forward(self, input, n_iterations, beta=0, ground_truth=None):
@@ -67,9 +68,11 @@ class Equilibrium_Propegation_Network(nn.Module):
             energy = self.__total_energy(beta, ground_truth)
             energy.backward()
             self.energy_optimizer.step()
-            for layer in self.free_units:
-                torch.clamp(layer,0.,1.)
-        return F.log_softmax(self.output, dim=0)
+            # self.free_units = [torch.clamp(layer,0.,1.) for layer in self.free_units]
+            # for layer in self.free_units:
+                # layer = torch.clamp(layer,0.,1.)
+                # layer.clamp_(0.,1.)
+        # return F.log_softmax(self.output, dim=0)
 
     # Does contrastive parameter optimization. Change to Hebbian later.
     def optimize(self, input, n_iterations_pos, n_iterations_neg, beta, ground_truth):
@@ -80,7 +83,7 @@ class Equilibrium_Propegation_Network(nn.Module):
         constrained_energy = self.__total_energy(beta, ground_truth)
         self.model_optimizer.zero_grad()
         # param_loss = torch.stack((constrained_energy - free_energy) / beta).sum()
-        param_loss = (constrained_energy - free_energy) / beta
+        param_loss = (constrained_energy - free_energy) # / beta
         param_loss.backward()
         self.model_optimizer.step()
         return y_pred, mean_free_energy, mean_free_cost
