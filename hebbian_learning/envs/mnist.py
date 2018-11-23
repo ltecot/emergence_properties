@@ -82,7 +82,7 @@ def main():
                        ])),
         batch_size=args.test_batch_size, shuffle=True)
 
-    model = Equilibrium_Propegation_Network(28*28, 10, args.epsilon, args.alpha)
+    model = Equilibrium_Propagation_Network(28*28, 10, args.epsilon, args.alpha)
     for epoch in range(1, args.epochs + 1):
         train(args, model, train_loader, epoch)
         test(args, model, test_loader)

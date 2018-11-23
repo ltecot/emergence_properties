@@ -1,11 +1,9 @@
-# Mostly taken from pytorch example github
-# https://github.com/pytorch/examples/tree/master/reinforcement_learning
-
 import argparse
 import gym
 import numpy as np
 from itertools import count
 from collections import namedtuple
+from functools import reduce
 
 import torch
 import torch.nn as nn
@@ -13,103 +11,49 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
 
+from hebbian_learning.models.equilibrium_propagation_reward_policy import Equilibrium_Propagation_Reward_Policy_Network
 
-parser = argparse.ArgumentParser(description='PyTorch actor-critic example')
-parser.add_argument('--gamma', type=float, default=0.99, metavar='G',
-                    help='discount factor (default: 0.99)')
-parser.add_argument('--seed', type=int, default=543, metavar='N',
-                    help='random seed (default: 1)')
-parser.add_argument('--render', action='store_true',
-                    help='render the environment')
-parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                    help='interval between training status logs (default: 10)')
+parser = argparse.ArgumentParser(description='PyTorch RL Example')
+parser.add_argument('--epsilon', type=float, default=0.2)
+parser.add_argument('--alpha', type=float, default=0.02)
+parser.add_argument('--eta', type=float, default=0.99)
+parser.add_argument('--delta', type=float, default=5)
+parser.add_argument('--gamma', type=float, default=10)
+parser.add_argument('--n_iterations', type=int, default=1)
+parser.add_argument('--seed', type=int, default=543)
+parser.add_argument('--render', type=bool, default=True)
+parser.add_argument('--log-interval', type=int, default=1)
 args = parser.parse_args()
-
 
 env = gym.make('CartPole-v0')
 env.seed(args.seed)
 torch.manual_seed(args.seed)
 
-
-SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
-
-
-class Policy(nn.Module):
-    def __init__(self):
-        super(Policy, self).__init__()
-        self.affine1 = nn.Linear(4, 128)
-        self.action_head = nn.Linear(128, 2)
-        self.value_head = nn.Linear(128, 1)
-
-        self.saved_actions = []
-        self.rewards = []
-
-    def forward(self, x):
-        x = F.relu(self.affine1(x))
-        action_scores = self.action_head(x)
-        state_values = self.value_head(x)
-        return F.softmax(action_scores, dim=-1), state_values
-
-
-model = Policy()
-optimizer = optim.Adam(model.parameters(), lr=3e-2)
-eps = np.finfo(np.float32).eps.item()
-
-
-def select_action(state):
-    state = torch.from_numpy(state).float()
-    probs, state_value = model(state)
-    m = Categorical(probs)
-    action = m.sample()
-    model.saved_actions.append(SavedAction(m.log_prob(action), state_value))
-    return action.item()
-
-
-def finish_episode():
-    R = 0
-    saved_actions = model.saved_actions
-    policy_losses = []
-    value_losses = []
-    rewards = []
-    for r in model.rewards[::-1]:
-        R = r + args.gamma * R
-        rewards.insert(0, R)
-    rewards = torch.tensor(rewards)
-    rewards = (rewards - rewards.mean()) / (rewards.std() + eps)
-    for (log_prob, value), r in zip(saved_actions, rewards):
-        reward = r - value.item()
-        policy_losses.append(-log_prob * reward)
-        value_losses.append(F.smooth_l1_loss(value, torch.tensor([r])))
-    optimizer.zero_grad()
-    loss = torch.stack(policy_losses).sum() + torch.stack(value_losses).sum()
-    loss.backward()
-    optimizer.step()
-    del model.rewards[:]
-    del model.saved_actions[:]
-
-
 def main():
+    model = Equilibrium_Propagation_Reward_Policy_Network(reduce(lambda x, y: x*y, env.observation_space.shape), 
+                                                          env.action_space.n, args.epsilon, args.alpha, 
+                                                          args.eta, args.delta, args.gamma)
     running_reward = 10
     for i_episode in count(1):
         state = env.reset()
         for t in range(10000):  # Don't infinite loop while learning
-            action = select_action(state)
-            state, reward, done, _ = env.step(action)
-            # if args.render:
-            env.render()
-            model.rewards.append(reward)
+            action_neurons = model.forward(np.reshape(state, -1), args.n_iterations)
+            action = Categorical(F.softmax(action_neurons))
+            state, reward, done, _ = env.step(action.sample().item())
+            if args.render:
+                env.render()
+            model.optimize(reward)
             if done:
+                model.reset_network()
                 break
-
         running_reward = running_reward * 0.99 + t * 0.01
-        finish_episode()
-        # if i_episode % args.log_interval == 0:
-        print('Episode {}\tLast length: {:5d}\tAverage length: {:.2f}'.format(
-            i_episode, t, running_reward))
-        if running_reward > env.spec.reward_threshold:
-            print("Solved! Running reward is now {} and "
-                  "the last episode runs to {} time steps!".format(running_reward, t))
-            break
+        if i_episode % args.log_interval == 0:
+            print('Episode {}\tLast length: {:5d}\tAverage reward: {:.2f}'.format(
+                i_episode, t, running_reward))
+            if running_reward > env.spec.reward_threshold:
+                print("Solved! Running reward is now {} and "
+                    "the last episode runs to {} time steps!".format(running_reward, t))
+                break
 
 
 if __name__ == '__main__':
