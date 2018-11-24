@@ -6,7 +6,8 @@ import torch.optim as optim
 from torch.distributions import Categorical
 
 def rho(s):
-    return torch.clamp(s,0.,1.)
+    # return torch.clamp(s,0.,1.)
+    return F.sigmoid(s)
 
 # MLP Model. Might want to do a vanilla RNN later.
 # epsilon: learning rate of energy optimization
@@ -20,7 +21,7 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
 
         self.path = name+".save"
         self.hyperparameters = {}
-        self.hyperparameters["hidden_sizes"] = 128
+        self.hyperparameters["hidden_sizes"] = 32
         self.hyperparameters["epsilon"] = epsilon
         self.hyperparameters["alpha"] = alpha
         self.hyperparameters["eta"] = eta
@@ -35,15 +36,18 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         
         self.biases = [torch.zeros(t.shape, requires_grad=True) for t in self.units]
         self.weights = [nn.init.xavier_uniform_(torch.zeros((pre_t.shape[0], post_t.shape[0]), requires_grad=True)) for pre_t, post_t in zip(self.units[:-1],self.units[1:]) ]
+        # self.weights = [torch.zeros((pre_t.shape[0], post_t.shape[0]), requires_grad=True) for pre_t, post_t in zip(self.units[:-1],self.units[1:]) ]
         self.params = self.biases + self.weights
 
         self.energy_optimizer = optim.Adam(self.free_units, lr=epsilon)
         self.model_optimizer = optim.Adam(self.params, lr=alpha)
 
-        self.running_energy = self.__energy()
+        # self.running_energy = self.energy()
+        self.running_init_energy = 0
+        self.running_minimized_energy = 0
 
     # ENERGY FUNCTION, DENOTED BY E
-    def __energy(self):
+    def energy(self):
         squared_norm = torch.sum(torch.stack([torch.sum(torch.dot(rho(layer),rho(layer))) for layer in self.units])) / 2.
         linear_terms = -torch.sum(torch.stack([torch.sum(torch.dot(rho(layer),b)) for layer,b in zip(self.units,self.biases)]))
         quadratic_terms = -torch.sum(torch.stack([torch.sum(torch.matmul(torch.matmul(rho(pre),W),rho(post))) for pre,W,post in zip(self.units[:-1],self.weights,self.units[1:])]))
@@ -53,30 +57,45 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
     # def __predict_and_measure(self, ground_truth):
     #     return self.output, self.__energy()
 
-    def __update_running_energy(self, new_energy):
-        self.running_energy = self.running_energy * self.hyperparameters["eta"] + new_energy * (1. - self.hyperparameters["eta"])
+    def __update_running_energy(self, new_init_energy, new_minimized_energy):
+        # self.running_energy = self.running_energy * self.hyperparameters["eta"] + new_energy * (1. - self.hyperparameters["eta"])
+        # self.running_energy = self.running_energy + new_energy
+        self.running_init_energy += new_init_energy
+        self.running_minimized_energy = new_minimized_energy
 
     def reset_network(self):
         # for weight in self.weights:
         #     nn.init.xavier_uniform_(weight)
         # for bias in self.biases:
         #     nn.init.zeros_(bias)
-        self.running_energy = self.__energy()
+        # self.running_energy = self.energy()
+        self.running_init_energy = 0
+        self.running_minimized_energy = 0
 
     # Coverges network towards fixed point.
     def forward(self, input, n_iterations):
+        # for layer in self.free_units:
+        #     torch.randn(3, 5)
         self.input = input
+        init_energy = self.energy()
         for _ in range(n_iterations):
             self.energy_optimizer.zero_grad()
-            energy = self.__energy()
+            energy = self.energy()
             energy.backward()
             self.energy_optimizer.step()
+        self.__update_running_energy(init_energy, self.energy())
         return self.output
 
     # Does contrastive parameter optimization. Change to Hebbian later.
     def optimize(self, reward):
-        self.__update_running_energy(self.__energy())
-        target_energy = self.running_energy + self.hyperparameters["gamma"] - self.hyperparameters["delta"] * reward
+        # self.__update_running_energy(init_energy, self.energy())
+        # target_energy = self.running_energy + self.hyperparameters["gamma"] - self.hyperparameters["delta"] * reward
+        # target_energy = -reward * self.running_energy
+        energy_loss = reward * (self.running_minimized_energy - self.running_init_energy)
+        # target_energy = self.hyperparameters["gamma"] - self.hyperparameters["delta"] * reward
+        # loss = (self.running_energy - target_energy) ** 2
         self.model_optimizer.zero_grad()
-        target_energy.backward(retain_graph=True)
+        # target_energy.backward(retain_graph=True)
+        energy_loss.backward(retain_graph=True)
+        # loss.backward(retain_graph=True)
         self.model_optimizer.step()
