@@ -7,7 +7,7 @@ from torch.distributions import Categorical
 
 def rho(s):
     # return torch.clamp(s,0.,1.)
-    return F.sigmoid(s)
+    return 2 * F.sigmoid(s) - 1
 
 # MLP Model. Might want to do a vanilla RNN later.
 # epsilon: learning rate of energy optimization
@@ -21,7 +21,7 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
 
         self.path = name+".save"
         self.hyperparameters = {}
-        self.hyperparameters["hidden_sizes"] = 32
+        self.hyperparameters["hidden_sizes"] = 512
         self.hyperparameters["epsilon"] = epsilon
         self.hyperparameters["alpha"] = alpha
         self.hyperparameters["eta"] = eta
@@ -83,6 +83,8 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         # self.running_minimized_energy = 0
         self.running_bias_coorelations = [torch.zeros(t.shape) for t in self.biases]
         self.running_weight_coorelations = [torch.zeros(t.shape) for t in self.weights]
+        self.hidden = nn.init.normal_(torch.zeros(self.hidden.shape, dtype=torch.float32, requires_grad=True), mean = 0, std=1)
+        self.output = nn.init.normal_(torch.zeros(self.output.shape, dtype=torch.float32, requires_grad=True), mean = 0, std=1)
 
     # Coverges network towards fixed point.
     def forward(self, input, n_iterations):

@@ -25,6 +25,7 @@ parser.add_argument('--render', type=bool, default=True)
 parser.add_argument('--log-interval', type=int, default=1)
 args = parser.parse_args()
 
+# env = gym.make('MountainCar-v0')
 env = gym.make('CartPole-v0')
 env.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -54,10 +55,10 @@ def main():
                 i_episode, t, running_reward))
             # print('Episode {}\tLast length: {:5d}\tAverage reward: {:.2f}\tEnergy: {:.2f} | {:.2f}'.format(
                 # i_episode, t, running_reward))
-            if running_reward > env.spec.reward_threshold:
-                print("Solved! Running reward is now {} and "
-                    "the last episode runs to {} time steps!".format(running_reward, t))
-                break
+            # if running_reward > env.spec.reward_threshold:
+            #     print("Solved! Running reward is now {} and "
+            #         "the last episode runs to {} time steps!".format(running_reward, t))
+            #     break
 
 
 if __name__ == '__main__':
