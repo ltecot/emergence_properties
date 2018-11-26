@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 
-from hebbian_learning.models.equilibrium_propagation_baseline import Equilibrium_Propegation_Network
+from hebbian_learning.models.equilibrium_propagation_baseline import Equilibrium_Propagation_Network
 
 def train(args, model, train_loader, epoch):
     model.train()
@@ -46,11 +46,11 @@ def main():
                         help='number of epochs to train (default: 10)')
     # parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
     #                     help='learning rate (default: 0.01)')
-    parser.add_argument('--epsilon', type=float, default=0.2, metavar='LR',
+    parser.add_argument('--epsilon', type=float, default=0.1, metavar='LR',
                         help='learning rate (default: 0.01)')
-    parser.add_argument('--alpha', type=float, default=0.02, metavar='LR',
+    parser.add_argument('--alpha', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
-    parser.add_argument('--beta', type=float, default=0.8, metavar='LR',
+    parser.add_argument('--beta', type=float, default=0.5, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--n_iterations_pos', type=int, default=20, metavar='LR',
                         help='learning rate (default: 0.01)')

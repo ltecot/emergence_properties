@@ -34,8 +34,8 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         self.units = [self.input, self.hidden, self.output]
         self.free_units = [self.hidden, self.output]
         
-        self.biases = [torch.zeros(t.shape, requires_grad=True) for t in self.units]
-        self.weights = [nn.init.xavier_uniform_(torch.zeros((pre_t.shape[0], post_t.shape[0]), requires_grad=True)) for pre_t, post_t in zip(self.units[:-1],self.units[1:]) ]
+        self.biases = [torch.zeros(t.shape, requires_grad=False) for t in self.units]
+        self.weights = [nn.init.xavier_uniform_(torch.zeros((pre_t.shape[0], post_t.shape[0]), requires_grad=False)) for pre_t, post_t in zip(self.units[:-1],self.units[1:]) ]
         # self.weights = [torch.zeros((pre_t.shape[0], post_t.shape[0]), requires_grad=True) for pre_t, post_t in zip(self.units[:-1],self.units[1:]) ]
         self.params = self.biases + self.weights
 
@@ -43,8 +43,10 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         self.model_optimizer = optim.Adam(self.params, lr=alpha)
 
         # self.running_energy = self.energy()
-        self.running_init_energy = 0
-        self.running_minimized_energy = 0
+        # self.running_init_energy = 0
+        # self.running_minimized_energy = 0
+        self.running_bias_coorelations = [torch.zeros(t.shape) for t in self.biases]
+        self.running_weight_coorelations = [torch.zeros(t.shape) for t in self.weights]
 
     # ENERGY FUNCTION, DENOTED BY E
     def energy(self):
@@ -57,11 +59,19 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
     # def __predict_and_measure(self, ground_truth):
     #     return self.output, self.__energy()
 
-    def __update_running_energy(self, new_init_energy, new_minimized_energy):
+    def __update_running_coorelations(self):
         # self.running_energy = self.running_energy * self.hyperparameters["eta"] + new_energy * (1. - self.hyperparameters["eta"])
         # self.running_energy = self.running_energy + new_energy
-        self.running_init_energy += new_init_energy
-        self.running_minimized_energy = new_minimized_energy
+        # self.running_init_energy += new_init_energy
+        # self.running_minimized_energy = new_minimized_energy
+        wc, bc = self.__unit_coorelations()
+        self.running_bias_coorelations = [self.hyperparameters["eta"] * t + c for t, c in zip(self.running_bias_coorelations, bc)]
+        self.running_weight_coorelations = [self.hyperparameters["eta"] * t + c for t, c in zip(self.running_weight_coorelations, wc)]
+
+    def __unit_coorelations(self):
+            weight_coorelations = [torch.mm(rho(pre_t).view(-1, 1), rho(post_t).view(1, -1))for pre_t, post_t in zip(self.units[:-1],self.units[1:])]
+            bias_coorelations = [rho(t) for t in self.units]
+            return weight_coorelations, bias_coorelations
 
     def reset_network(self):
         # for weight in self.weights:
@@ -69,33 +79,39 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         # for bias in self.biases:
         #     nn.init.zeros_(bias)
         # self.running_energy = self.energy()
-        self.running_init_energy = 0
-        self.running_minimized_energy = 0
+        # self.running_init_energy = 0
+        # self.running_minimized_energy = 0
+        self.running_bias_coorelations = [torch.zeros(t.shape) for t in self.biases]
+        self.running_weight_coorelations = [torch.zeros(t.shape) for t in self.weights]
 
     # Coverges network towards fixed point.
     def forward(self, input, n_iterations):
         # for layer in self.free_units:
         #     torch.randn(3, 5)
         self.input = input
-        init_energy = self.energy()
         for _ in range(n_iterations):
             self.energy_optimizer.zero_grad()
             energy = self.energy()
             energy.backward()
             self.energy_optimizer.step()
-        self.__update_running_energy(init_energy, self.energy())
         return self.output
 
     # Does contrastive parameter optimization. Change to Hebbian later.
     def optimize(self, reward):
-        # self.__update_running_energy(init_energy, self.energy())
-        # target_energy = self.running_energy + self.hyperparameters["gamma"] - self.hyperparameters["delta"] * reward
-        # target_energy = -reward * self.running_energy
-        energy_loss = reward * (self.running_minimized_energy - self.running_init_energy)
-        # target_energy = self.hyperparameters["gamma"] - self.hyperparameters["delta"] * reward
-        # loss = (self.running_energy - target_energy) ** 2
-        self.model_optimizer.zero_grad()
-        # target_energy.backward(retain_graph=True)
-        energy_loss.backward(retain_graph=True)
-        # loss.backward(retain_graph=True)
-        self.model_optimizer.step()
+        # # self.__update_running_energy(init_energy, self.energy())
+        # # target_energy = self.running_energy + self.hyperparameters["gamma"] - self.hyperparameters["delta"] * reward
+        # # target_energy = -reward * self.running_energy
+        # energy_loss = reward * (self.running_minimized_energy - self.running_init_energy)
+        # # target_energy = self.hyperparameters["gamma"] - self.hyperparameters["delta"] * reward
+        # # loss = (self.running_energy - target_energy) ** 2
+        # self.model_optimizer.zero_grad()
+        # # target_energy.backward(retain_graph=True)
+        # energy_loss.backward(retain_graph=True)
+        # # loss.backward(retain_graph=True)
+        # self.model_optimizer.step()
+        self.__update_running_coorelations()
+        with torch.no_grad():
+            self.weights = [layer + self.hyperparameters["alpha"] * (self.hyperparameters["delta"] * reward * coorelation - self.hyperparameters["gamma"])
+                            for layer, coorelation in zip(self.weights, self.running_weight_coorelations)]
+            self.biases = [layer + self.hyperparameters["alpha"] * (self.hyperparameters["delta"] * reward * coorelation - self.hyperparameters["gamma"])
+                        for layer, coorelation in zip(self.biases, self.running_bias_coorelations)]
