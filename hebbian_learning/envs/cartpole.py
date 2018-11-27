@@ -15,9 +15,9 @@ from hebbian_learning.models.equilibrium_propagation_reward_policy import Equili
 
 parser = argparse.ArgumentParser(description='PyTorch RL Example')
 parser.add_argument('--epsilon', type=float, default=0.2)
-parser.add_argument('--alpha', type=float, default=1)
+parser.add_argument('--alpha', type=float, default=0.1)
 parser.add_argument('--eta', type=float, default=1)
-parser.add_argument('--delta', type=float, default=10)
+parser.add_argument('--delta', type=float, default=50)
 parser.add_argument('--gamma', type=float, default=10)
 parser.add_argument('--n_iterations', type=int, default=5)
 parser.add_argument('--seed', type=int, default=543)
@@ -41,7 +41,7 @@ def main():
             # pre_energy = model.__energy()
             action_neurons = model.forward(np.reshape(state, -1), args.n_iterations)
             action = Categorical(F.softmax(action_neurons))
-            print(F.softmax(action_neurons))
+            # print(F.softmax(action_neurons))
             state, reward, done, _ = env.step(action.sample().item())
             if args.render:
                 env.render()

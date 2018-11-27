@@ -83,19 +83,22 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         # self.running_minimized_energy = 0
         self.running_bias_coorelations = [torch.zeros(t.shape) for t in self.biases]
         self.running_weight_coorelations = [torch.zeros(t.shape) for t in self.weights]
-        self.hidden = nn.init.normal_(torch.zeros(self.hidden.shape, dtype=torch.float32, requires_grad=True), mean = 0, std=1)
-        self.output = nn.init.normal_(torch.zeros(self.output.shape, dtype=torch.float32, requires_grad=True), mean = 0, std=1)
+        # self.hidden = nn.init.normal_(torch.zeros(self.hidden.shape, dtype=torch.float32, requires_grad=True), mean = 0, std=1)
+        # self.output = nn.init.normal_(torch.zeros(self.output.shape, dtype=torch.float32, requires_grad=True), mean = 0, std=1)
 
     # Coverges network towards fixed point.
     def forward(self, input, n_iterations):
         # for layer in self.free_units:
         #     torch.randn(3, 5)
-        self.input = input
-        for _ in range(n_iterations):
-            self.energy_optimizer.zero_grad()
-            energy = self.energy()
-            energy.backward()
-            self.energy_optimizer.step()
+        self.input = torch.from_numpy(input).float()
+        # for _ in range(n_iterations):
+        #     self.energy_optimizer.zero_grad()
+        #     energy = self.energy()
+        #     energy.backward()
+        #     self.energy_optimizer.step()
+        self.hidden = torch.mm(self.input.view(1, -1), self.weights[0]).view(-1) + self.biases[1]
+        self.hidden = rho(self.hidden)
+        self.output = torch.mm(self.hidden.view(1, -1), self.weights[1]).view(-1) + self.biases[2]
         return self.output
 
     # Does contrastive parameter optimization. Change to Hebbian later.
@@ -113,7 +116,11 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         # self.model_optimizer.step()
         self.__update_running_coorelations()
         with torch.no_grad():
-            self.weights = [layer + self.hyperparameters["alpha"] * (self.hyperparameters["delta"] * reward * coorelation - self.hyperparameters["gamma"])
+            self.weights = [layer + self.hyperparameters["alpha"] * 
+                            (self.hyperparameters["delta"] * reward * coorelation 
+                            - self.hyperparameters["gamma"] * nn.init.normal_(torch.zeros(layer.shape, dtype=torch.float32), mean = 0, std=1))
                             for layer, coorelation in zip(self.weights, self.running_weight_coorelations)]
-            self.biases = [layer + self.hyperparameters["alpha"] * (self.hyperparameters["delta"] * reward * coorelation - self.hyperparameters["gamma"])
+            self.biases = [layer + self.hyperparameters["alpha"] * 
+                          (self.hyperparameters["delta"] * reward * coorelation 
+                          - self.hyperparameters["gamma"] * nn.init.normal_(torch.zeros(layer.shape, dtype=torch.float32), mean = 0, std=1))
                         for layer, coorelation in zip(self.biases, self.running_bias_coorelations)]
