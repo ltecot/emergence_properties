@@ -15,7 +15,7 @@ from tensorboardX import SummaryWriter
 from hebbian_learning.models.equilibrium_propagation_reward_policy import Equilibrium_Propagation_Reward_Policy_Network
 
 parser = argparse.ArgumentParser(description='PyTorch RL Example')
-parser.add_argument('--epsilon', type=float, default=0.5)
+parser.add_argument('--epsilon', type=float, default=0.1)
 parser.add_argument('--alpha', type=float, default=0.001)
 parser.add_argument('--eta', type=float, default=0.99)
 parser.add_argument('--delta', type=float, default=1)

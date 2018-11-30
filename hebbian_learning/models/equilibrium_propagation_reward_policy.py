@@ -91,8 +91,8 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
                         # - self.hyperparameters["gamma"] * nn.init.normal_(torch.zeros(layer.shape, dtype=torch.float32), mean = 0, std=1)  # Noise
                         ) for layer, coorelation, average in zip(self.weights, self.running_weight_coorelations, self.average_weight_coorelations)]
         self.biases = [layer + self.hyperparameters["alpha"] * 
-                       (0#self.hyperparameters["delta"] * reward * coorelation  # Reward Update
-                      # - self.hyperparameters["delta"] * self.step_count * self.average_reward * average  # Negative Reward Update
+                       (-self.hyperparameters["delta"] * reward * coorelation  # Reward Update
+                       + self.hyperparameters["delta"] * self.step_count * self.average_reward * average  # Negative Reward Update
                     #    - self.hyperparameters["epsilon"] * coorelation  # LTD and LTP
                     #    - self.hyperparameters["gamma"] * nn.init.normal_(torch.zeros(layer.shape, dtype=torch.float32), mean = 0, std=1)  # Noise
                        ) for layer, coorelation, average in zip(self.biases, self.running_bias_coorelations, self.average_bias_coorelations)]
