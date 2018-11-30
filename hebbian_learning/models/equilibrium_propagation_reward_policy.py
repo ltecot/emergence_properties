@@ -48,23 +48,28 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         self.running_weight_coorelations = [torch.zeros(t.shape) for t in self.weights]
         self.average_weight_coorelations, self.average_bias_coorelations = self.__unit_coorelations()
         self.average_reward = 0
+        self.step_count = 0
 
     def __update_running_coorelations(self):
         wc, bc = self.__unit_coorelations()
         self.running_bias_coorelations = [self.hyperparameters["eta"] * t + c for t, c in zip(self.running_bias_coorelations, bc)]
         self.running_weight_coorelations = [self.hyperparameters["eta"] * t + c for t, c in zip(self.running_weight_coorelations, wc)]
-        self.average_bias_coorelations = self.average_bias_coorelations * self.hyperparameters["eta"] + bc * (1 - self.hyperparameters["eta"])
-        self.average_weight_coorelations = self.average_weight_coorelations * self.hyperparameters["eta"] + wc * (1 - self.hyperparameters["eta"])
+        self.average_bias_coorelations = [self.hyperparameters["eta"] * t + (1 - self.hyperparameters["eta"]) * c 
+                                          for t, c in zip(self.average_bias_coorelations, bc)]
+        self.average_weight_coorelations = [self.hyperparameters["eta"] * t + (1 - self.hyperparameters["eta"]) * c 
+                                          for t, c in zip(self.average_weight_coorelations, wc)]
+        self.step_count = self.hyperparameters["eta"] * self.step_count + 1
         return wc, bc
 
     def __unit_coorelations(self):
-            weight_coorelations = [torch.mm(rho(pre_t).view(-1, 1), rho(post_t).view(1, -1))for pre_t, post_t in zip(self.units[:-1],self.units[1:])]
-            bias_coorelations = [rho(t) for t in self.units]
-            return weight_coorelations, bias_coorelations
+        weight_coorelations = [torch.mm(rho(pre_t).view(-1, 1), rho(post_t).view(1, -1))for pre_t, post_t in zip(self.units[:-1],self.units[1:])]
+        bias_coorelations = [rho(t) for t in self.units]
+        return weight_coorelations, bias_coorelations
 
     def reset_network(self):
         self.running_bias_coorelations = [torch.zeros(t.shape) for t in self.biases]
         self.running_weight_coorelations = [torch.zeros(t.shape) for t in self.weights]
+        self.step_count = 0
 
     # Coverges network towards fixed point.
     def forward(self, input, n_iterations):
@@ -72,30 +77,25 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         self.hidden = torch.mm(self.input.view(1, -1), self.weights[0]).view(-1) + self.biases[1]
         self.hidden = rho(self.hidden)
         self.output = torch.mm(self.hidden.view(1, -1), self.weights[1]).view(-1) + self.biases[2]
+        self.units = [self.input, self.hidden, self.output]
         return self.output
 
     # Does contrastive parameter optimization.
+    # Input log likelyhood of action actually taken?
     def optimize(self, reward):
         _, bc = self.__update_running_coorelations()
         self.average_reward = self.average_reward * self.hyperparameters["eta"] + reward * (1 - self.hyperparameters["eta"])
-        # with torch.no_grad():
-        #     self.weights = [layer + self.hyperparameters["alpha"] * 
-        #                     (self.hyperparameters["delta"] * reward * coorelation 
-        #                     - self.hyperparameters["gamma"] * nn.init.normal_(torch.zeros(layer.shape, dtype=torch.float32), mean = 0, std=1))
-        #                     for layer, coorelation in zip(self.weights, self.running_weight_coorelations)]
-        #     self.biases = [layer + self.hyperparameters["alpha"] * 
-        #                   (self.hyperparameters["delta"] * reward * coorelation 
-        #                   - self.hyperparameters["gamma"] * nn.init.normal_(torch.zeros(layer.shape, dtype=torch.float32), mean = 0, std=1))
-        #                 for layer, coorelation in zip(self.biases, self.running_bias_coorelations)]
         self.weights = [layer + self.hyperparameters["alpha"] * 
-                        (self.hyperparameters["delta"] * reward * coorelation  # Reward Update
-                        - self.hyperparameters["gamma"] * nn.init.normal_(torch.zeros(layer.shape, dtype=torch.float32), mean = 1, std=2))  # Noise
-                        for layer, coorelation in zip(self.weights, self.running_weight_coorelations)]
+                        (self.hyperparameters["delta"] * reward * coorelation  # Positive Reward Update
+                        - self.hyperparameters["delta"] * self.average_reward * average  # Negative Reward Update
+                        # - self.hyperparameters["gamma"] * nn.init.normal_(torch.zeros(layer.shape, dtype=torch.float32), mean = 0, std=1)  # Noise
+                        ) for layer, coorelation, average in zip(self.weights, self.running_weight_coorelations, self.average_weight_coorelations)]
         self.biases = [layer + self.hyperparameters["alpha"] * 
-                        (#self.hyperparameters["delta"] * reward * coorelation  # Reward Update
-                        - self.hyperparameters["epsilon"] * coorelation  # LTD and LTP
-                        - self.hyperparameters["gamma"] * nn.init.normal_(torch.zeros(layer.shape, dtype=torch.float32), mean = 1, std=2))  # Noise
-                    for layer, coorelation in zip(self.biases, bc)]
+                       (0#self.hyperparameters["delta"] * reward * coorelation  # Reward Update
+                      # - self.hyperparameters["delta"] * self.step_count * self.average_reward * average  # Negative Reward Update
+                    #    - self.hyperparameters["epsilon"] * coorelation  # LTD and LTP
+                    #    - self.hyperparameters["gamma"] * nn.init.normal_(torch.zeros(layer.shape, dtype=torch.float32), mean = 0, std=1)  # Noise
+                       ) for layer, coorelation, average in zip(self.biases, self.running_bias_coorelations, self.average_bias_coorelations)]
         # Regularization (probably do something smarter here)
         # self.weights = [layer / torch.sum(torch.abs(layer)) for layer in self.weights]
         # self.biases = [layer / torch.sum(torch.abs(layer)) for layer in self.biases]
