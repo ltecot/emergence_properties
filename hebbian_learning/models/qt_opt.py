@@ -48,7 +48,6 @@ class Qt_Opt(object):
         if self.memory_counter > self.memory_capacity:
             # target parameter update
             if self.learn_step_counter % self.target_replace_period == 0:
-                # self.target_net.load_state_dict(self.eval_net.state_dict())
                 self.target_net.copy_(self.eval_net)
             self.learn_step_counter += 1
             sample_index = np.random.choice(self.memory_capacity, self.batch_size )
@@ -58,7 +57,7 @@ class Qt_Opt(object):
             b_r = torch.FloatTensor(b_memory[:, self.num_states+self.num_actions:self.num_states+self.num_actions+1])
             b_t = torch.FloatTensor(b_memory[:, self.num_states+self.num_actions+1:self.num_states+self.num_actions+2])
             b_s_ = torch.FloatTensor(b_memory[:, -self.num_states:])
-            q_eval = self.eval_net(torch.cat((b_s.float(), b_a.float()), dim=1))
+            q_eval = self.eval_net.forward(torch.cat((b_s.float(), b_a.float()), dim=1))
             q_next = self.target_max(b_s_).detach()     # detach from graph, don't backpropagate
             q_target = b_r + self.gamma * (1 - b_t) * q_next   # shape (batch, 1)
             self.eval_net.optimize(q_eval, q_target)
