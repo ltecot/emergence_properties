@@ -7,8 +7,8 @@ import torch.optim as optim
 from torch.distributions import Categorical
 
 def rho(s):
-    # return torch.clamp(s,0.,1.)
-    return torch.sigmoid(s)
+    return torch.clamp(s,0.,1.)
+    # return torch.sigmoid(s)
 
 # MLP Model. Might want to do a vanilla RNN later.
 class Equilibrium_Propagation_Network(nn.Module):
@@ -32,13 +32,14 @@ class Equilibrium_Propagation_Network(nn.Module):
         self.hyperparameters["num_iterations"] = num_iterations
         self.hyperparameters["num_iterations_neg"] = num_iterations_neg
         self.hyperparameters["beta"] = beta
+        self.batch_size = batch_size
         
         # self.input = torch.zeros([input_size], dtype=torch.float32)
         # self.hidden = torch.zeros([self.hyperparameters["hidden_sizes"]], dtype=torch.float32, requires_grad=grad_req)
         # self.output = torch.zeros([output_size], dtype=torch.float32, requires_grad=grad_req)
         # self.units = [self.input, self.hidden, self.output]
         # self.free_units = [self.hidden, self.output]
-        self.input = torch.zeros([batch_size, input_size], dtype=torch.float32)
+        self.input = torch.zeros([batch_size, input_size], dtype=torch.float32, requires_grad=False)
         self.hidden = torch.zeros([batch_size, num_hidden], dtype=torch.float32, requires_grad=grad_req)
         self.output = torch.zeros([batch_size, output_size], dtype=torch.float32, requires_grad=grad_req)
         self.units = [self.input, self.hidden, self.output]
@@ -59,7 +60,7 @@ class Equilibrium_Propagation_Network(nn.Module):
         # quadratic_terms = -torch.sum(torch.stack([torch.sum(torch.matmul(torch.matmul(rho(pre),W),rho(post))) for pre,W,post in zip(batch_units[:-1],self.weights,batch_units[1:])]))
         squared_norm = torch.sum(torch.stack([torch.sum(layer**2) for layer in batch_units])) / 2.
         linear_terms = -torch.sum(torch.stack([torch.sum(torch.matmul(rho(layer),b.view(-1, 1))) for layer,b in zip(batch_units,self.biases)]))
-        quadratic_terms = -torch.sum(torch.stack([torch.sum(torch.matmul(torch.matmul(torch.unsqueeze(pre, 2), torch.unsqueeze(post, 1)).view(batch_size, -1), W.view(-1, 1)))
+        quadratic_terms = -torch.sum(torch.stack([torch.sum(torch.matmul(torch.matmul(torch.unsqueeze(rho(pre), 2), torch.unsqueeze(rho(post), 1)).view(batch_size, -1), W.view(-1, 1)))
                                      for pre,W,post in zip(batch_units[:-1],self.weights,batch_units[1:])]))
         return squared_norm + linear_terms + quadratic_terms
 
@@ -73,6 +74,7 @@ class Equilibrium_Propagation_Network(nn.Module):
         if beta == 0:
             return self.__energy(batch_size)
         else:
+            # return (1 - beta) * self.__energy(batch_size) + beta * self.__cost(ground_truth, batch_size)
             return self.__energy(batch_size) + beta * self.__cost(ground_truth, batch_size)
 
     # def __unit_coorelations(self):
@@ -88,62 +90,74 @@ class Equilibrium_Propagation_Network(nn.Module):
         # return y_softmax, E, C
         return self.output[0:batch_size], E, C
 
+    def __reset_state(self):
+        with torch.no_grad():
+            self.input.zero_()
+            self.hidden.zero_()
+            self.output.zero_()
+            # self.units = [self.input, self.hidden, self.output]
+            # self.free_units = [self.hidden, self.output]
+
     # Coverges network towards fixed point.
-    def forward(self, input, num_iterations=None, beta=0, ground_truth=None, retain_graph=False):
+    def forward(self, input=None, batch_size=None, num_iterations=None, beta=0, ground_truth=None, retain_graph=False):
         if self.model_version == 1:
             if not num_iterations:
                 num_iterations = self.hyperparameters["num_iterations"]
-            batch_size = input.shape[0]
-            self.input[0:batch_size] = input
-            for _ in range(num_iterations):
+            if input is not None:
+                self.__reset_state()
+                self.batch_size = input.shape[0]
+                self.input[0:self.batch_size] = input
+            # rg = False
+            for i in range(num_iterations):
+                # if i == num_iterations-1:
+                #     rg = retain_graph
                 self.energy_optimizer.zero_grad()
-                energy = self.__total_energy(beta, ground_truth, batch_size)
+                energy = self.__total_energy(beta, ground_truth, self.batch_size)
                 energy.backward(retain_graph=retain_graph)
                 self.energy_optimizer.step()
-            return self.output[0:batch_size]
+            return self.output[0:self.batch_size]
         else:
-            raise NotImplementedError
-            # if beta == 0:
-            #     self.input = torch.from_numpy(input).float()
-            #     self.hidden = torch.mm(self.input, self.weights[0]).view(-1) + self.biases[1]
-            #     self.hidden = rho(self.hidden)
-            #     self.output = torch.mm(self.hidden.view(1, -1), self.weights[1]).view(-1) + self.biases[2]
-            #     self.units = [self.input, self.hidden, self.output]
-            # else:
-            #     self.input = torch.from_numpy(input).float()
-            #     self.hidden = torch.mm(self.input.view(1, -1), self.weights[0]).view(-1) + self.biases[1]
-            #     self.hidden = rho(self.hidden)
-            #     self.output = torch.mm(self.hidden.view(1, -1), self.weights[1]).view(-1) + self.biases[2]
-            #     self.units = [self.input, self.hidden, self.output]
-            # return self.output
+            if not num_iterations:
+                num_iterations = self.hyperparameters["num_iterations"]
+            if input is not None:
+                self.__reset_state()
+                self.batch_size = input.shape[0]
+                self.input[0:self.batch_size] = input
+            for i in range(num_iterations):
+                self.energy_optimizer.zero_grad()
+                energy = self.__total_energy(beta, ground_truth, self.batch_size)
+                energy.backward(retain_graph=retain_graph)
+                self.energy_optimizer.step()
+            return self.output[0:self.batch_size]
 
-    # Does contrastive parameter optimization. Change to Hebbian later.
-    def optimize(self, input, ground_truth):
+    # Requires running free phase before calling this. eval is unused, just to satisfy interface requirment.
+    def optimize(self, eval, ground_truth):
         if self.model_version == 1:
-            batch_size = input.shape[0]
-            self.forward(input, self.hyperparameters["num_iterations"], beta=0, ground_truth=None, retain_graph=True)  # Free Phase
-            free_energy = self.__total_energy(0, ground_truth, batch_size)
-            y_pred, mean_free_energy, mean_free_cost = self.__predict_and_measure(ground_truth, batch_size)
-            self.forward(input, self.hyperparameters["num_iterations_neg"], beta=self.hyperparameters["beta"], ground_truth=ground_truth, retain_graph=True)  # Constrained Phase
-            constrained_energy = self.__total_energy(self.hyperparameters["beta"], ground_truth, batch_size)
+            if np.random.uniform() < 0.5:
+                self.hyperparameters["beta"] *= -1
+            # batch_size = input.shape[0]
+            # self.forward(input=input, num_iterations=self.hyperparameters["num_iterations"], beta=0, ground_truth=None)  # Free Phase
+            free_energy = self.__total_energy(0, ground_truth, self.batch_size)
+            y_pred, mean_free_energy, mean_free_cost = self.__predict_and_measure(ground_truth, self.batch_size)
+            self.forward(batch_size=self.batch_size, num_iterations=self.hyperparameters["num_iterations_neg"], 
+                         beta=self.hyperparameters["beta"], ground_truth=ground_truth)  # Constrained Phase
+            constrained_energy = self.__total_energy(self.hyperparameters["beta"], ground_truth, self.batch_size)
             self.model_optimizer.zero_grad()
             param_loss = (constrained_energy - free_energy) / self.hyperparameters["beta"]
-            param_loss.backward()
+            param_loss.backward() 
             self.model_optimizer.step()
             return y_pred, mean_free_energy, mean_free_cost
         else:
-            raise NotImplementedError
-            # self.forward(input, n_iterations_pos, beta=0, ground_truth=None)  # Free Phase
-            # free_wc, free_bc = self.__unit_coorelations()
-            # y_pred, mean_free_energy, mean_free_cost = self.__predict_and_measure(ground_truth)
-            # self.forward(input, n_iterations_neg, beta=beta, ground_truth=ground_truth)  # Constrained Phase
-            # constrained_wc, constrained_bc = self.__unit_coorelations()
-            # with torch.no_grad():
-            #     self.weights = [layer + self.hyperparameters["alpha"] * (constrained - free) 
-            #                     for layer, constrained, free in zip(self.weights, constrained_wc, free_wc)]
-            #     self.biases = [layer + self.hyperparameters["alpha"] * (constrained - free)  
-            #                 for layer, constrained, free in zip(self.biases, constrained_bc, free_bc)]
-            # return y_pred, mean_free_energy, mean_free_cost
+            free_energy = self.__total_energy(0, ground_truth, self.batch_size)
+            y_pred, mean_free_energy, mean_free_cost = self.__predict_and_measure(ground_truth, self.batch_size)
+            self.forward(batch_size=self.batch_size, num_iterations=self.hyperparameters["num_iterations_neg"], 
+                         beta=self.hyperparameters["beta"], ground_truth=ground_truth)  # Constrained Phase
+            constrained_energy = self.__total_energy(self.hyperparameters["beta"], ground_truth, self.batch_size)
+            self.model_optimizer.zero_grad()
+            param_loss = (constrained_energy - free_energy) / self.hyperparameters["beta"]
+            param_loss.backward() 
+            self.model_optimizer.step()
+            return y_pred, mean_free_energy, mean_free_cost
 
     def copy(self):
         new_net = Equilibrium_Propagation_Network(self.hyperparameters["input_size"], self.hyperparameters["output_size"], 
