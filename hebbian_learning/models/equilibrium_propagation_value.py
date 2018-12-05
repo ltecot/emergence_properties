@@ -37,42 +37,45 @@ class Equilibrium_Propagation_Value_Network(nn.Module):
         self.params = self.biases + self.weights
 
         self.energy_optimizer = optim.Adam(self.free_units, lr=energy_learn_rate)
-        self.model_optimizer = optim.Adam(self.params, lr=param_learn_rate)
+        # self.model_optimizer = optim.Adam(self.params, lr=param_learn_rate)
 
     # ENERGY FUNCTION, DENOTED BY E
-    def __energy(self, batch_size):
+    def __energy(self):
         squared_norm = torch.sum(torch.stack([torch.sum(layer**2) for layer in self.units])) / 2.
-        linear_terms = -torch.sum(torch.stack([torch.sum(torch.dot(rho(layer),b)) for layer,b in zip(batch_units,self.biases)]))
-        quadratic_terms = -torch.sum(torch.stack([torch.sum(torch.matmul(torch.matmul(rho(pre_t).view(-1, 1), rho(post_t).view(1, -1)).view(batch_size, -1), W.view(-1, 1)))
-                                     for pre,W,post in zip(self.units[:-1],self.weights,self.units[1:])]))
+        linear_terms = -torch.sum(torch.stack([torch.sum(torch.dot(rho(layer),b)) for layer,b in zip(self.units,self.biases)]))
+        quadratic_terms = -torch.sum(torch.stack([torch.sum(torch.dot(torch.matmul(rho(pre_t).view(-1, 1), rho(post_t).view(1, -1)).view(-1), W.view(-1)))
+                                     for pre_t,W,post_t in zip(self.units[:-1],self.weights,self.units[1:])]))
         return squared_norm + linear_terms + quadratic_terms
 
     # COST FUNCTION, DENOTED BY C
-    def __cost(self, ground_truth, batch_size):
+    def __cost(self, ground_truth):
         return torch.sum((self.output - ground_truth) ** 2)
 
     # TOTAL ENERGY FUNCTION, DENOTED BY F
-    def __total_energy(self, beta, ground_truth, batch_size):
+    def __total_energy(self, beta, ground_truth):
         if beta == 0:
-            return self.__energy(batch_size)
+            return self.__energy()
         else:
-            return self.__energy(batch_size) + beta * self.__cost(ground_truth, batch_size)
+            return self.__energy() + beta * self.__cost(ground_truth)
 
-    def __unit_coorelations(self):
+    def unit_coorelations(self):
         weight_coorelations = [torch.matmul(rho(pre_t).view(-1, 1), rho(post_t).view(1, -1))for pre_t, post_t in zip(self.units[:-1],self.units[1:])]
         bias_coorelations = [rho(t) for t in self.units]
         return weight_coorelations, bias_coorelations
 
     # MEASURES THE ENERGY, THE COST AND THE MISCLASSIFICATION ERROR FOR THE CURRENT STATE OF THE NETWORK
-    def __predict_and_measure(self, ground_truth, batch_size):
-        E = self.__energy(batch_size)
-        C = self.__cost(ground_truth, batch_size)
+    def __predict_and_measure(self, ground_truth):
+        E = self.__energy()
+        C = self.__cost(ground_truth)
         # y_softmax = F.log_softmax(self.output, dim=0)
         # return y_softmax, E, C
-        return self.output[0:batch_size], E, C
+        return self.output, E, C
 
     def __reset_state(self):
         with torch.no_grad():
+            # self.input = 0 * self.input
+            # self.hidden = 0 * self.hidden
+            # self.output = 0 * self.output
             self.input.zero_()
             self.hidden.zero_()
             self.output.zero_()
@@ -80,44 +83,44 @@ class Equilibrium_Propagation_Value_Network(nn.Module):
             # self.free_units = [self.hidden, self.output]
 
     # Coverges network towards fixed point.
-    def forward(self, input=None, batch_size=None, num_iterations=None, beta=0, ground_truth=None, retain_graph=False):
+    def forward(self, input, num_iterations=None, beta=0, ground_truth=None):
+        # if input is not None:
+        # self.__reset_state()
+        self.input = input
         if not num_iterations:
             num_iterations = self.hyperparameters["num_iterations"]
-        if input is not None:
-            self.__reset_state()
-            self.batch_size = input.shape[0]
-            self.input[0:self.batch_size] = input
+        # rg = True
         for i in range(num_iterations):
+            # if i == num_iterations - 1:
+            #     rg = False
             self.energy_optimizer.zero_grad()
-            energy = self.__total_energy(beta, ground_truth, self.batch_size)
-            energy.backward(retain_graph=retain_graph)
+            energy = self.__total_energy(beta, ground_truth)
+            energy.backward(retain_graph=True)
             self.energy_optimizer.step()
-        return self.output[0:self.batch_size]
+        return self.output
 
-    # Requires running free phase before calling this. eval is unused, just to satisfy interface requirment.
-    def forward_and_optimize(self, input, ground_truth):
-        if self.model_version == 1:
-            if np.random.uniform() < 0.5:
-                self.hyperparameters["beta"] *= -1
-            batch_size = input.shape[0]
-            self.forward(input=input, num_iterations=self.hyperparameters["num_iterations"], beta=0, ground_truth=None)  # Free Phase
-            free_energy = self.__total_energy(0, ground_truth, self.batch_size)
-            y_pred, mean_free_energy, mean_free_cost = self.__predict_and_measure(ground_truth, self.batch_size)
-            self.forward(batch_size=self.batch_size, num_iterations=self.hyperparameters["num_iterations_neg"], 
-                         beta=self.hyperparameters["beta"], ground_truth=ground_truth)  # Constrained Phase
-            constrained_energy = self.__total_energy(self.hyperparameters["beta"], ground_truth, self.batch_size)
-            self.model_optimizer.zero_grad()
-            param_loss = (constrained_energy - free_energy) / self.hyperparameters["beta"]
-            param_loss.backward() 
-            self.model_optimizer.step()
-            return y_pred, mean_free_energy, mean_free_cost
+    # Requires running free phase before calling this.
+    def optimize(self, input, ground_truth): 
+        # if np.random.uniform() < 0.5:
+        #     self.hyperparameters["beta"] *= -1
+        self.forward(input=input, num_iterations=self.hyperparameters["num_iterations"], beta=0, ground_truth=None)  # Free Phase
+        free_weight_coorelations, free_bias_coorelations = self.unit_coorelations()
+        y_pred, mean_free_energy, mean_free_cost = self.__predict_and_measure(ground_truth)
+        self.forward(input=input, num_iterations=self.hyperparameters["num_iterations_neg"], 
+                     beta=self.hyperparameters["beta"], ground_truth=ground_truth)  # Constrained Phase
+        constrained_weight_coorelations, constrained_bias_coorelations = self.unit_coorelations()
+        self.weights = [layer + self.hyperparameters["param_learn_rate"] * (constrained_coorelations - free_coorelations)
+                        for layer, constrained_coorelations, free_coorelations in zip(self.weights, constrained_weight_coorelations, free_weight_coorelations)]
+        self.biases = [layer + self.hyperparameters["param_learn_rate"] * (constrained_coorelations - free_coorelations)
+                       for layer, constrained_coorelations, free_coorelations in zip(self.biases, constrained_bias_coorelations, free_bias_coorelations)]
+        return y_pred, mean_free_energy, mean_free_cost
 
     def copy(self):
-        new_net = Equilibrium_Propagation_Network(self.hyperparameters["input_size"], self.hyperparameters["output_size"], 
-                                                  self.hyperparameters["num_hidden"], self.hyperparameters["batch_size"], 
-                                                  self.hyperparameters["energy_learn_rate"], self.hyperparameters["param_learn_rate"], 
-                                                  self.hyperparameters["num_iterations"], self.hyperparameters["num_iterations_neg"],
-                                                  self.hyperparameters["beta"])
+        new_net = Equilibrium_Propagation_Value_Network(self.hyperparameters["input_size"], self.hyperparameters["output_size"], 
+                                                        self.hyperparameters["num_hidden"], 
+                                                        self.hyperparameters["energy_learn_rate"], self.hyperparameters["param_learn_rate"], 
+                                                        self.hyperparameters["num_iterations"], self.hyperparameters["num_iterations_neg"],
+                                                        self.hyperparameters["beta"])
         new_net.input = torch.tensor(self.input)
         new_net.hidden = torch.tensor(self.hidden)
         new_net.output = torch.tensor(self.output)

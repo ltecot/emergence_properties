@@ -16,7 +16,7 @@ class Equilibrium_Propagation_Network(nn.Module):
         super(Equilibrium_Propagation_Network, self).__init__()
 
         self.model_version = 1  # 1 is gradient-based, 2 is contrastive based.
-        if self.model_version == 1:
+        if self.model_version == 2:
             grad_req = True
         else:
             grad_req = False
@@ -40,8 +40,8 @@ class Equilibrium_Propagation_Network(nn.Module):
         # self.units = [self.input, self.hidden, self.output]
         # self.free_units = [self.hidden, self.output]
         self.input = torch.zeros([batch_size, input_size], dtype=torch.float32, requires_grad=False)
-        self.hidden = torch.zeros([batch_size, num_hidden], dtype=torch.float32, requires_grad=grad_req)
-        self.output = torch.zeros([batch_size, output_size], dtype=torch.float32, requires_grad=grad_req)
+        self.hidden = torch.zeros([batch_size, num_hidden], dtype=torch.float32, requires_grad=True)
+        self.output = torch.zeros([batch_size, output_size], dtype=torch.float32, requires_grad=True)
         self.units = [self.input, self.hidden, self.output]
         self.free_units = [self.hidden, self.output]
         
@@ -77,10 +77,10 @@ class Equilibrium_Propagation_Network(nn.Module):
             # return (1 - beta) * self.__energy(batch_size) + beta * self.__cost(ground_truth, batch_size)
             return self.__energy(batch_size) + beta * self.__cost(ground_truth, batch_size)
 
-    # def __unit_coorelations(self):
-    #     weight_coorelations = [torch.mm(rho(pre_t).view(-1, 1), rho(post_t).view(1, -1))for pre_t, post_t in zip(self.units[:-1],self.units[1:])]
-    #     bias_coorelations = [rho(t) for t in self.units]
-    #     return weight_coorelations, bias_coorelations
+    def __unit_coorelations(self):
+        weight_coorelations = [torch.mm(rho(pre_t).view(-1, 1), rho(post_t).view(1, -1))for pre_t, post_t in zip(self.units[:-1],self.units[1:])]
+        bias_coorelations = [rho(t) for t in self.units]
+        return weight_coorelations, bias_coorelations
 
     # MEASURES THE ENERGY, THE COST AND THE MISCLASSIFICATION ERROR FOR THE CURRENT STATE OF THE NETWORK
     def __predict_and_measure(self, ground_truth, batch_size):
@@ -148,15 +148,16 @@ class Equilibrium_Propagation_Network(nn.Module):
             self.model_optimizer.step()
             return y_pred, mean_free_energy, mean_free_cost
         else:
-            free_energy = self.__total_energy(0, ground_truth, self.batch_size)
+            # self.forward(input=input, num_iterations=self.hyperparameters["num_iterations"], beta=0, ground_truth=None)  # Free Phase
+            free_weight_coorelations, free_bias_coorelations = self.__unit_coorelations()
             y_pred, mean_free_energy, mean_free_cost = self.__predict_and_measure(ground_truth, self.batch_size)
             self.forward(batch_size=self.batch_size, num_iterations=self.hyperparameters["num_iterations_neg"], 
-                         beta=self.hyperparameters["beta"], ground_truth=ground_truth)  # Constrained Phase
-            constrained_energy = self.__total_energy(self.hyperparameters["beta"], ground_truth, self.batch_size)
-            self.model_optimizer.zero_grad()
-            param_loss = (constrained_energy - free_energy) / self.hyperparameters["beta"]
-            param_loss.backward() 
-            self.model_optimizer.step()
+                            beta=self.hyperparameters["beta"], ground_truth=ground_truth)  # Constrained Phase
+            constrained_weight_coorelations, constrained_bias_coorelations = self.__unit_coorelations()
+            self.weights = [layer + self.hyperparameters["param_learn_rate"] * (constrained_coorelations - free_coorelations)
+                            for layer, constrained_coorelations, free_coorelations in zip(self.weights, constrained_weight_coorelations, free_weight_coorelations)]
+            self.biases = [layer + self.hyperparameters["param_learn_rate"] * (constrained_coorelations - free_coorelations)
+                        for layer, constrained_coorelations, free_coorelations in zip(self.weights, constrained_bias_coorelations, free_bias_coorelations)]
             return y_pred, mean_free_energy, mean_free_cost
 
     def copy(self):

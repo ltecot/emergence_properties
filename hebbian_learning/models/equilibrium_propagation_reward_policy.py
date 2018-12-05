@@ -62,7 +62,7 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         return wc, bc
 
     def __unit_coorelations(self):
-        weight_coorelations = [torch.mm(rho(pre_t).view(-1, 1), rho(post_t).view(1, -1))for pre_t, post_t in zip(self.units[:-1],self.units[1:])]
+        weight_coorelations = [torch.matmul(rho(pre_t).view(-1, 1), rho(post_t).view(1, -1))for pre_t, post_t in zip(self.units[:-1],self.units[1:])]
         bias_coorelations = [rho(t) for t in self.units]
         return weight_coorelations, bias_coorelations
 
@@ -107,5 +107,5 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         # print(self.hyperparameters["epsilon"])
         # self.hyperparameters["alpha"] = 0.999 * self.hyperparameters["alpha"]
         # print(self.hyperparameters["alpha"])
-        # self.biases = [layer * 0.995 for layer in self.biases]
-        # self.weights = [layer * 0.995 for layer in self.weights]
+        self.biases = [layer - layer / (torch.abs(layer) + 0.000001) * 0.000001 for layer in self.biases]
+        self.weights = [layer - layer / (torch.abs(layer) + 0.000001) * 0.000001 for layer in self.weights]
