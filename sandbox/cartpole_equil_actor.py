@@ -113,45 +113,101 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         self.biases = [layer - layer / (torch.abs(layer) + 0.000001) * 0.000001 for layer in self.biases]
         self.weights = [layer - layer / (torch.abs(layer) + 0.000001) * 0.000001 for layer in self.weights]
 
+class MLP(nn.Module):
+    def __init__(self, n_in, n_out, hidden, learning_rate):
+        super(MLP, self).__init__()
+        self.fc1 = nn.Linear(n_in, hidden)
+        self.fc1.weight.data.normal_(0, 0.01)   # initialization
+        self.out = nn.Linear(hidden, n_out)
+        self.out.weight.data.normal_(0, 0.01)   # initialization
 
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
+        # self.loss_func = nn.MSELoss()
 
-class Qt_Opt(object):
-    def __init__(self, network, num_states, num_actions, memory_capacity, batch_size, target_replace_period, epsilon, gamma):
-        self.eval_net = network
-        self.target_net = network.copy()
+        self.n_in = n_in
+        self.n_out = n_out
+        self.hidden = hidden
+        self.learning_rate = learning_rate
+
+    def forward(self, input):
+        x = self.fc1(input)
+        x = F.relu(x)
+        y = self.out(x)
+        return y
+
+    def forward_softmax(self, x):
+        y = self.forward(x)
+        probs = F.softmax(y, dim=-1)
+        m = Categorical(probs)
+        action = m.sample()
+        return action.item(), m.log_prob(action).float()
+
+    # def optimize(self, pred, target):
+    #     loss = self.loss_func(pred, target)
+    #     self.optimizer.zero_grad()
+    #     loss.backward()
+    #     self.optimizer.step()
+
+    def optimize(self, loss):
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+    def copy(self):
+        new_net = MLP(self.n_in, self.n_out, self.hidden, self.learning_rate)
+        new_net.load_state_dict(self.state_dict())
+        return new_net
+
+    # In place copy
+    def copy_(self, source_net):
+        self.load_state_dict(source_net.state_dict())
+
+class Actor_Critic(object):
+    def __init__(self, num_states, num_actions, memory_capacity, batch_size, 
+                 target_replace_period, gamma, num_hidden, learning_rate):
+        self.eval_net = MLP(num_states, 1, num_hidden, learning_rate)
+        self.target_net = self.eval_net.copy()
+        self.policy_net = MLP(num_states, 2, num_hidden, learning_rate)
 
         self.learn_step_counter = 0                                     # for target updating
         self.memory_counter = 0                                         # for storing memory
-        self.memory = np.zeros((memory_capacity, num_states * 2 + num_actions + 2))     # initialize memory
+        self.memory = np.zeros((memory_capacity, num_states * 2 + num_actions + 3))     # initialize memory
         
         self.num_states = num_states
         self.num_actions = num_actions
         self.memory_capacity = memory_capacity
         self.batch_size = batch_size
         self.target_replace_period = target_replace_period
-        self.eps = epsilon
+        # self.eps = epsilon
         self.gamma = gamma
+        self.value_loss_func = nn.MSELoss()
 
     def choose_action(self, x):
-        state = torch.from_numpy(x).float().view(-1)
-        if np.random.uniform() < self.eps:
-            v0 = self.eval_net.forward(torch.cat((state.view(1, -1), torch.tensor([[0]]).float()), dim=1))
-            v1 = self.eval_net.forward(torch.cat((state.view(1, -1), torch.tensor([[1]]).float()), dim=1))
-            action = 1 if v1 > v0 else 0
-        else:
-            action = 1 if np.random.uniform() > 0.5 else 0
-        return action
+        state = torch.from_numpy(x).float()
+        return self.policy_net.forward_softmax(state)
+    #     state = torch.from_numpy(x).float()
+    #     probs = F.softmax(self.policy_net.forward(state), dim=-1)
+    #     m = Categorical(probs)
+    #     action = m.sample()
+    #     return action.item(), m.log_prob(action).float()
+    #     # if np.random.uniform() < self.eps:
+    #     #     v0 = self.eval_net.forward(torch.cat((state.view(1, -1), torch.tensor([[0]]).float()), dim=1))
+    #     #     v1 = self.eval_net.forward(torch.cat((state.view(1, -1), torch.tensor([[1]]).float()), dim=1))
+    #     #     action = 1 if v1 > v0 else 0
+    #     # else:
+    #     #     action = 1 if np.random.uniform() > 0.5 else 0
+    #     # return action
 
-    def store_transition(self, s, a, r, done, s_):
-        transition = np.hstack((s, [a, r, done], s_))
+    def store_transition(self, s, a, ap, r, done, s_):
+        transition = np.hstack((s, [a, ap, r, done], s_))
         index = self.memory_counter % self.memory_capacity
         self.memory[index, :] = transition
         self.memory_counter += 1
 
-    def target_max(self, b_s_):
-        v0 = self.target_net.forward(torch.cat((b_s_, torch.zeros(b_s_.shape[0], 1).float()), dim=1))
-        v1 = self.target_net.forward(torch.cat((b_s_, torch.ones(b_s_.shape[0], 1).float()), dim=1))
-        return torch.max(v0, v1)
+    # def target_max(self, b_s_):
+    #     v0 = self.target_net.forward(torch.cat((b_s_, torch.zeros(b_s_.shape[0], 1).float()), dim=1))
+    #     v1 = self.target_net.forward(torch.cat((b_s_, torch.ones(b_s_.shape[0], 1).float()), dim=1))
+    #     return torch.max(v0, v1)
 
     def learn(self):
         if self.memory_counter > self.memory_capacity:
@@ -162,44 +218,50 @@ class Qt_Opt(object):
             sample_index = np.random.choice(self.memory_capacity, self.batch_size )
             b_memory = self.memory[sample_index, :]
             b_s = torch.FloatTensor(b_memory[:, :self.num_states])
-            b_a = torch.LongTensor(b_memory[:, self.num_states:self.num_states+self.num_actions])
-            b_r = torch.FloatTensor(b_memory[:, self.num_states+self.num_actions:self.num_states+self.num_actions+1])
-            b_t = torch.FloatTensor(b_memory[:, self.num_states+self.num_actions+1:self.num_states+self.num_actions+2])
+            b_a = torch.FloatTensor(b_memory[:, self.num_states:self.num_states+self.num_actions])
+            b_ap = torch.FloatTensor(b_memory[:, self.num_states+self.num_actions:self.num_states+self.num_actions+1])
+            b_r = torch.FloatTensor(b_memory[:, self.num_states+self.num_actions+1:self.num_states+self.num_actions+2])
+            b_t = torch.FloatTensor(b_memory[:, self.num_states+self.num_actions+2:self.num_states+self.num_actions+3])
             b_s_ = torch.FloatTensor(b_memory[:, -self.num_states:])
-            q_eval = self.eval_net.forward(torch.cat((b_s.float(), b_a.float()), dim=1)).detach()
-            q_next = self.target_max(b_s_).detach()     # detach from graph, don't backpropagate
+            # Critic
+            q_eval = self.eval_net.forward(b_s.float())
+            q_next = self.target_net(b_s_.float()).detach()     # detach from graph, don't backpropagate
             q_target = b_r + self.gamma * (1 - b_t) * q_next   # shape (batch, 1)
-            self.eval_net.optimize(q_eval, q_target)
-
-
+            val_loss = self.value_loss_func(q_eval, q_target)
+            self.eval_net.optimize(val_loss)
+            # Actor
+            q_avg = self.target_net(b_s.float())#.detach()
+            q_s = q_target
+            advantage = q_s - q_avg
+            policy_loss = torch.dot(-1 * b_ap.view(-1), advantage.view(-1)).sum()
+            self.policy_net.optimize(policy_loss)
 
 parser = argparse.ArgumentParser(description='PyTorch RL Example')
-parser.add_argument('--equil_prop', type=bool, default=True)
+parser.add_argument('--equil_prop', type=bool, default=False)
 parser.add_argument('--seed', type=int, default=1337)
 parser.add_argument('--render', type=bool, default=True)
 parser.add_argument('--log-interval', type=int, default=1)
 # Equil Prop
-parser.add_argument('--energy_learn_rate', type=float, default=0.1)
-parser.add_argument('--learning_rate', type=float, default=0.01)
-parser.add_argument('--epsilon', type=float, default=0.9)
-parser.add_argument('--gamma', type=float, default=0.99)
-# parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--target_replace_period', type=int, default=10)
-# parser.add_argument('--memory_capacity', type=int, default=256)
-parser.add_argument('--num_hidden', type=int, default=64)
-parser.add_argument('--n_iterations', type=int, default=3)
-parser.add_argument('--n_iterations_neg', type=int, default=1)
-parser.add_argument('--beta', type=float, default=0.5)
-# MLP
+# parser.add_argument('--energy_learn_rate', type=float, default=0.1)
 # parser.add_argument('--learning_rate', type=float, default=0.01)
+# parser.add_argument('--epsilon', type=float, default=0.9)
 # parser.add_argument('--gamma', type=float, default=0.99)
-# parser.add_argument('--epsilon', type=float, default=0.95)
-# parser.add_argument('--batch_size', type=int, default=16)
+# # parser.add_argument('--batch_size', type=int, default=16)
 # parser.add_argument('--target_replace_period', type=int, default=10)
-# parser.add_argument('--memory_capacity', type=int, default=256)
+# # parser.add_argument('--memory_capacity', type=int, default=256)
 # parser.add_argument('--num_hidden', type=int, default=64)
+# parser.add_argument('--n_iterations', type=int, default=3)
+# parser.add_argument('--n_iterations_neg', type=int, default=1)
+# parser.add_argument('--beta', type=float, default=0.5)
+# MLP
+parser.add_argument('--learning_rate', type=float, default=0.01)
+parser.add_argument('--gamma', type=float, default=0.99)
+parser.add_argument('--epsilon', type=float, default=0.95)
+parser.add_argument('--batch_size', type=int, default=16)
+parser.add_argument('--target_replace_period', type=int, default=10)
+parser.add_argument('--memory_capacity', type=int, default=256)
+parser.add_argument('--num_hidden', type=int, default=64)
 args = parser.parse_args()
-# args.beta = -np.log(1-args.beta)
 
 # env = gym.make('MountainCar-v0')
 env = gym.make('CartPole-v0')
@@ -212,14 +274,12 @@ N_STATES = env.observation_space.shape[0]
 
 def main():
     if args.equil_prop:
-        network = Equilibrium_Propagation_Value_Network(N_STATES + N_ACTIONS, 1, args.num_hidden,
-                                                       args.energy_learn_rate, args.learning_rate, args.n_iterations, 
-                                                       args.n_iterations_neg, args.beta)
-        rl_model = Qt_Opt_Equil_Prop(network, N_STATES, N_ACTIONS, args.target_replace_period, args.epsilon, args.gamma)
+        pass
     else:
-        network = MLP(N_STATES + N_ACTIONS, 1, args.num_hidden, args.learning_rate)
-        rl_model = Qt_Opt(network, N_STATES, N_ACTIONS, args.memory_capacity, 
-                          args.batch_size, args.target_replace_period, args.epsilon, args.gamma)
+        # rl_model = Actor_Critic(N_STATES, N_ACTIONS, args.memory_capacity, args.batch_size, 
+        #                         args.target_replace_period, args.epsilon, args.gamma)
+        rl_model = Actor_Critic(N_STATES, N_ACTIONS, args.memory_capacity, args.batch_size, 
+                                args.target_replace_period, args.gamma, 64, args.learning_rate)
     running_reward = 20
     for i_episode in range(100000):
         s = env.reset()
@@ -227,10 +287,10 @@ def main():
         for t in range(100000):
             if args.render:
                 env.render()
-            a = rl_model.choose_action(s)
+            a, ap = rl_model.choose_action(s)
             s_, r, done, info = env.step(a)
             if not args.equil_prop:
-                rl_model.store_transition(s, a, r, done, s_)
+                rl_model.store_transition(s, a, ap, r, done, s_)
                 rl_model.learn()
             else:
                 rl_model.learn(s, a, r, done, s_)
