@@ -80,6 +80,7 @@ class Equil_Prop_Policy(nn.Module):
     # Coverges network towards fixed point.
     def forward(self, input):
         # self.input = torch.from_numpy(input).float()
+        self.input = input
         self.hidden = torch.mm(self.input.view(1, -1), self.weights[0]).view(-1) + self.biases[1]
         self.hidden = rho(self.hidden)
         self.output = torch.mm(self.hidden.view(1, -1), self.weights[1]).view(-1) + self.biases[2]
@@ -93,7 +94,7 @@ class Equil_Prop_Policy(nn.Module):
         # self.average_reward = self.average_reward * self.hyperparameters["eta"] + reward * (1 - self.hyperparameters["eta"])
         for (weight_coorelation, bias_coorelation), loss in zip(self.saved_coorelations, losses):
             self.weights = [layer + self.hyperparameters["alpha"] * (-loss * coorelation) for layer, coorelation in zip(self.weights, weight_coorelation)]
-            self.biases = [layer + self.hyperparameters["alpha"] * (-loss * coorelation) for layer, coorelation in zip(self.biases, bias_coorelation)]
+            self.biases = [layer + 0.1 * self.hyperparameters["alpha"] * (-loss * coorelation) for layer, coorelation in zip(self.biases, bias_coorelation)]
 
 class Value_Network(nn.Module):
     def __init__(self):
@@ -114,8 +115,8 @@ class Value_Network(nn.Module):
 
 
 val_model = Value_Network()
-policy_model = Equil_Prop_Policy(4, 2, 3e-3)
-optimizer = optim.Adam(val_model.parameters(), lr=3e-2)
+policy_model = Equil_Prop_Policy(4, 2, 0.03)
+optimizer = optim.Adam(val_model.parameters(), lr=0.03)
 eps = np.finfo(np.float32).eps.item()
 
 
