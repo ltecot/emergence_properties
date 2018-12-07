@@ -101,6 +101,7 @@ class Equil_Prop_Policy(nn.Module):
         # for (weight_coorelation, bias_coorelation), loss in zip(self.saved_coorelations, losses):
         #     self.weights = [layer + self.hyperparameters["alpha"] * (-loss * coorelation) for layer, coorelation in zip(self.weights, weight_coorelation)]
         #     self.biases = [layer + 0.1 * self.hyperparameters["alpha"] * (-loss * coorelation) for layer, coorelation in zip(self.biases, bias_coorelation)]
+        losses = [loss.detach() for loss in losses]
         energy_loss = [-energy * loss for energy, loss in zip(self.saved_energy, losses)]
         sumed_loss = torch.sum(torch.stack(energy_loss))
         self.model_optimizer.zero_grad()
