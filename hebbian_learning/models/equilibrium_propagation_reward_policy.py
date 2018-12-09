@@ -107,5 +107,5 @@ class Equilibrium_Propagation_Reward_Policy_Network(nn.Module):
         # print(self.hyperparameters["epsilon"])
         # self.hyperparameters["alpha"] = 0.999 * self.hyperparameters["alpha"]
         # print(self.hyperparameters["alpha"])
-        self.biases = [layer - layer / (torch.abs(layer) + 0.000001) * 0.000001 for layer in self.biases]
-        self.weights = [layer - layer / (torch.abs(layer) + 0.000001) * 0.000001 for layer in self.weights]
+        # self.biases = [layer - layer / (torch.abs(layer) + 0.000001) * 0.000001 for layer in self.biases]
+        # self.weights = [layer - layer / (torch.abs(layer) + 0.000001) * 0.000001 for layer in self.weights]

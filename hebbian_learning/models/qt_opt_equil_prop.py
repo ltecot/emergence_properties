@@ -46,4 +46,5 @@ class Qt_Opt_Equil_Prop(object):
         # q_eval = self.eval_net.forward(torch.cat((s.float(), a.float())))
         q_next = self.target_max(s_).detach()     # detach from graph, don't backpropagate
         q_target = r + self.gamma * (1 - done) * q_next   # shape (batch, 1)
-        self.eval_net.optimize(torch.cat((torch.tensor(s).float(), torch.tensor([a]).float())), q_target)
+        _, _, cost = self.eval_net.optimize(torch.cat((torch.tensor(s).float(), torch.tensor([a]).float())), q_target)
+        return cost

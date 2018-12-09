@@ -31,7 +31,7 @@ parser.add_argument('--gamma', type=float, default=0.99)
 parser.add_argument('--target_replace_period', type=int, default=10)
 # parser.add_argument('--memory_capacity', type=int, default=256)
 parser.add_argument('--num_hidden', type=int, default=64)
-parser.add_argument('--n_iterations', type=int, default=3)
+parser.add_argument('--n_iterations', type=int, default=1)
 parser.add_argument('--n_iterations_neg', type=int, default=1)
 parser.add_argument('--beta', type=float, default=0.5)
 # MLP
@@ -68,6 +68,7 @@ def main():
     for i_episode in range(100000):
         s = env.reset()
         ep_r = 0
+        total_cost = 0
         for t in range(100000):
             if args.render:
                 env.render()
@@ -77,11 +78,13 @@ def main():
                 rl_model.store_transition(s, a, r, done, s_)
                 rl_model.learn()
             else:
-                rl_model.learn(s, a, r, done, s_)
+                cost = rl_model.learn(s, a, r, done, s_)
             s = s_
             ep_r += r
+            total_cost += cost
             if done:
                 writer.add_scalar('data/episode_reward', t, i_episode)
+                writer.add_scalar('data/average_cost', total_cost / t, i_episode)
                 running_reward = running_reward * 0.99 + ep_r * 0.01
                 print('Episode {}\treward: {:.2f}\tAverage reward: {:.2f}'.format(
                     i_episode, ep_r, running_reward))

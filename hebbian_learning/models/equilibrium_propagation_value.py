@@ -64,7 +64,7 @@ class Equilibrium_Propagation_Value_Network(nn.Module):
         return weight_coorelations, bias_coorelations
 
     # MEASURES THE ENERGY, THE COST AND THE MISCLASSIFICATION ERROR FOR THE CURRENT STATE OF THE NETWORK
-    def __predict_and_measure(self, ground_truth):
+    def predict_and_measure(self, ground_truth):
         E = self.__energy()
         C = self.__cost(ground_truth)
         # y_softmax = F.log_softmax(self.output, dim=0)
@@ -76,14 +76,17 @@ class Equilibrium_Propagation_Value_Network(nn.Module):
             # self.input = 0 * self.input
             # self.hidden = 0 * self.hidden
             # self.output = 0 * self.output
-            self.input.zero_()
-            self.hidden.zero_()
-            self.output.zero_()
+            # self.input.zero_()
+            # self.hidden.zero_()
+            # self.output.zero_()
+            self.input.grad.data.zero_()
+            self.hidden.grad.data.zero_()
+            self.output.grad.data.zero_()
             # self.units = [self.input, self.hidden, self.output]
             # self.free_units = [self.hidden, self.output]
 
     # Coverges network towards fixed point.
-    def forward(self, input, num_iterations=None, beta=0, ground_truth=None):
+    def forward(self, input, num_iterations=None, beta=0, ground_truth=None, rg=False):
         # if input is not None:
         # self.__reset_state()
         self.input = input
@@ -94,8 +97,9 @@ class Equilibrium_Propagation_Value_Network(nn.Module):
             # if i == num_iterations - 1:
             #     rg = False
             self.energy_optimizer.zero_grad()
+            self.input.grad.zero_()
             energy = self.__total_energy(beta, ground_truth)
-            energy.backward(retain_graph=True)
+            energy.backward(retain_graph=rg)
             self.energy_optimizer.step()
         return self.output
 
@@ -103,9 +107,9 @@ class Equilibrium_Propagation_Value_Network(nn.Module):
     def optimize(self, input, ground_truth): 
         # if np.random.uniform() < 0.5:
         #     self.hyperparameters["beta"] *= -1
-        self.forward(input=input, num_iterations=self.hyperparameters["num_iterations"], beta=0, ground_truth=None)  # Free Phase
+        self.forward(input=input, num_iterations=self.hyperparameters["num_iterations"], beta=0, ground_truth=None, rg=True)  # Free Phase
         free_weight_coorelations, free_bias_coorelations = self.unit_coorelations()
-        y_pred, mean_free_energy, mean_free_cost = self.__predict_and_measure(ground_truth)
+        y_pred, mean_free_energy, mean_free_cost = self.predict_and_measure(ground_truth)
         self.forward(input=input, num_iterations=self.hyperparameters["num_iterations_neg"], 
                      beta=self.hyperparameters["beta"], ground_truth=ground_truth)  # Constrained Phase
         constrained_weight_coorelations, constrained_bias_coorelations = self.unit_coorelations()

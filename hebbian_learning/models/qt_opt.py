@@ -61,3 +61,4 @@ class Qt_Opt(object):
             q_next = self.target_max(b_s_).detach()     # detach from graph, don't backpropagate
             q_target = b_r + self.gamma * (1 - b_t) * q_next   # shape (batch, 1)
             self.eval_net.optimize(q_eval, q_target)
+            return torch.sum((q_eval - q_target) ** 2)
