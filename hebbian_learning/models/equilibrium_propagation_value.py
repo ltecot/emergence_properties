@@ -97,7 +97,7 @@ class Equilibrium_Propagation_Value_Network(nn.Module):
             # if i == num_iterations - 1:
             #     rg = False
             self.energy_optimizer.zero_grad()
-            self.input.grad.zero_()
+            # self.input.grad.zero_()
             energy = self.__total_energy(beta, ground_truth)
             energy.backward(retain_graph=rg)
             self.energy_optimizer.step()

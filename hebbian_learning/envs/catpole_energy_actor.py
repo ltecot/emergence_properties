@@ -156,7 +156,9 @@ def finish_episode():
     rewards = (rewards - rewards.mean()) / (rewards.std() + eps)
     for (log_prob, value), r in zip(saved_actions, rewards):
         reward = r - value.item()
-        policy_losses.append(-log_prob * reward)
+        # policy_losses.append(-log_prob * reward)
+        # policy_losses.append(-reward)
+        policy_losses.append(reward)
         value_losses.append(F.smooth_l1_loss(value, torch.tensor([r])))
     # Critic
     optimizer.zero_grad()
