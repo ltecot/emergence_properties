@@ -127,7 +127,7 @@ class Value_Network(nn.Module):
 
 
 val_model = Value_Network()
-policy_model = Equil_Prop_Policy(4, 2, 0.003)
+policy_model = Equil_Prop_Policy(4, 2, 0.03)
 optimizer = optim.Adam(val_model.parameters(), lr=0.03)
 eps = np.finfo(np.float32).eps.item()
 
@@ -156,9 +156,9 @@ def finish_episode():
     rewards = (rewards - rewards.mean()) / (rewards.std() + eps)
     for (log_prob, value), r in zip(saved_actions, rewards):
         reward = r - value.item()
-        # policy_losses.append(-log_prob * reward)
+        policy_losses.append(-log_prob * reward)
         # policy_losses.append(-reward)
-        policy_losses.append(reward)
+        # policy_losses.append(reward)
         value_losses.append(F.smooth_l1_loss(value, torch.tensor([r])))
     # Critic
     optimizer.zero_grad()
